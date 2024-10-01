@@ -364,7 +364,8 @@ pub struct SubmitPointTransaction {
 mod tests {
     use alloy_core::sol_types::SolStruct;
     use alloy_signer::SignerSync;
-    use alloy_signer_wallet::LocalWallet;
+    // use alloy_signer_wallet::LocalWallet;
+    use alloy_signer_local::PrivateKeySigner as LocalWallet;
     use std::str::FromStr;
 
     use super::*;
