@@ -139,7 +139,7 @@ jobs:
 
       - name: Generate checksum (Windows)
         if: matrix.runner == 'windows-latest'
-        run: Get-FileHash tripa-${{ matrix.target }}.exe decode-batch-${{ matrix.target }}.exe -Algorithm SHA512 | Out-File -FilePath SHA512SUMS-${{ matrix.target }}.txt
+        run: Get-FileHash -Path tripa-${{ matrix.target }}.exe,decode-batch-${{ matrix.target }}.exe -Algorithm SHA512 | Select-Object @{Name='FileName'; Expression={($_.Path -split '\\')[-1]}}, Hash | Out-File -FilePath SHA512SUMS-${{ matrix.target }}.txt
 
       - name: Release
         uses: softprops/action-gh-release@v2
