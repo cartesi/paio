@@ -73,14 +73,17 @@ impl WalletState {
     }
 }
 
-impl WalletState {
-    pub fn new() -> Self {
+impl Default for WalletState {
+    fn default() -> Self {
         WalletState {
             domain: DOMAIN.clone(),
             app_nonces: HashMap::new(),
             balances: HashMap::new(),
         }
     }
+}
+
+impl WalletState {
     pub fn add_app_nonce(&mut self, address: Address, nonces: AppNonces) {
         self.app_nonces.insert(address, nonces);
     }
@@ -113,6 +116,7 @@ impl AppState {
     }
 }
 
+#[derive(Default)]
 pub struct AppNonces {
     // user address to nonce
     pub nonces: HashMap<Address, u64>,
@@ -135,9 +139,7 @@ impl AppNonces {
         tx: &WireTransaction,
         domain: &Eip712Domain,
     ) -> Option<Transaction> {
-        let Some(tx) = tx.verify(&domain) else {
-            return None;
-        };
+        let tx = tx.verify(domain)?;
 
         let expected_nonce = self.nonces.entry(tx.sender).or_insert(0);
 
@@ -147,14 +149,6 @@ impl AppNonces {
 
         *expected_nonce += 1;
         Some(tx)
-    }
-}
-
-impl Default for AppNonces {
-    fn default() -> Self {
-        Self {
-            nonces: HashMap::new(),
-        }
     }
 }
 
@@ -322,17 +316,13 @@ pub struct SignedTransaction {
     pub signature: Signature,
 }
 
-
 impl SignedTransaction {
     pub fn valdiate(&self, domain: &Eip712Domain) -> bool {
         self.recover(domain).is_ok()
     }
 
-    pub fn recover(
-        &self,
-        domain: &Eip712Domain,
-    ) -> Result<Address, SignatureError> {
-        let signing_hash = self.message.eip712_signing_hash(&domain);
+    pub fn recover(&self, domain: &Eip712Domain) -> Result<Address, SignatureError> {
+        let signing_hash = self.message.eip712_signing_hash(domain);
         self.signature.recover_address_from_prehash(&signing_hash)
     }
 
@@ -357,7 +347,7 @@ pub const DOMAIN: Eip712Domain = eip712_domain!(
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct SubmitPointTransaction {
     pub message: String,
-    pub signature: String
+    pub signature: String,
 }
 
 #[cfg(test)]
