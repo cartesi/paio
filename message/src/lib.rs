@@ -73,14 +73,17 @@ impl WalletState {
     }
 }
 
-impl WalletState {
-    pub fn new() -> Self {
+impl Default for WalletState {
+    fn default() -> Self {
         WalletState {
             domain: DOMAIN.clone(),
             app_nonces: HashMap::new(),
             balances: HashMap::new(),
         }
     }
+}
+
+impl WalletState {
     pub fn add_app_nonce(&mut self, address: Address, nonces: AppNonces) {
         self.app_nonces.insert(address, nonces);
     }
@@ -113,6 +116,7 @@ impl AppState {
     }
 }
 
+#[derive(Default)]
 pub struct AppNonces {
     // user address to nonce
     pub nonces: HashMap<Address, u64>,
@@ -135,9 +139,7 @@ impl AppNonces {
         tx: &WireTransaction,
         domain: &Eip712Domain,
     ) -> Option<Transaction> {
-        let Some(tx) = tx.verify(&domain) else {
-            return None;
-        };
+        let tx = tx.verify(domain)?;
 
         let expected_nonce = self.nonces.entry(tx.sender).or_insert(0);
 
@@ -147,14 +149,6 @@ impl AppNonces {
 
         *expected_nonce += 1;
         Some(tx)
-    }
-}
-
-impl Default for AppNonces {
-    fn default() -> Self {
-        Self {
-            nonces: HashMap::new(),
-        }
     }
 }
 
@@ -322,17 +316,13 @@ pub struct SignedTransaction {
     pub signature: Signature,
 }
 
-
 impl SignedTransaction {
     pub fn valdiate(&self, domain: &Eip712Domain) -> bool {
         self.recover(domain).is_ok()
     }
 
-    pub fn recover(
-        &self,
-        domain: &Eip712Domain,
-    ) -> Result<Address, SignatureError> {
-        let signing_hash = self.message.eip712_signing_hash(&domain);
+    pub fn recover(&self, domain: &Eip712Domain) -> Result<Address, SignatureError> {
+        let signing_hash = self.message.eip712_signing_hash(domain);
         self.signature.recover_address_from_prehash(&signing_hash)
     }
 
@@ -357,14 +347,15 @@ pub const DOMAIN: Eip712Domain = eip712_domain!(
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct SubmitPointTransaction {
     pub message: String,
-    pub signature: String
+    pub signature: String,
 }
 
 #[cfg(test)]
 mod tests {
     use alloy_core::sol_types::SolStruct;
     use alloy_signer::SignerSync;
-    use alloy_signer_wallet::LocalWallet;
+    // use alloy_signer_wallet::LocalWallet;
+    use alloy_signer_local::PrivateKeySigner as LocalWallet;
     use std::str::FromStr;
 
     use super::*;
@@ -395,7 +386,7 @@ mod tests {
 
         let signature = signer.sign_typed_data_sync(&v, &DOMAIN).unwrap();
         assert_eq!(
-            r#"{"r":"0xfa6f7fd6825c953b355c8970fd2c9322162987bfb6898aa78f74f2be6bf8b10c","s":"0x9a2018a7e31b623a91802147e6f8d5c658e17191e69f6663052efda71db72e2","yParity":"0x1"}"#,
+            r#"{"r":"0x1551fdb98e7afaedf0f626029e525ff7ca4b8e8bad81f2d7299979d76ed438b3","s":"0x726fc8b549d8578868775530eee59c9c2b57923baef9df981280739f1b76289e","yParity":"0x0"}"#,
             serde_json::to_string(&signature).unwrap()
         );
         let signed_tx = SignedTransaction {
@@ -406,7 +397,7 @@ mod tests {
         let ret = serde_json::to_string(&signed_tx).unwrap();
 
         assert_eq!(
-            r#"{"message":{"app":"0x0000000000000000000000000000000000000000","nonce":0,"max_gas_price":0,"data":"0x48656c6c6f2c20576f726c6421"},"signature":{"r":"0xfa6f7fd6825c953b355c8970fd2c9322162987bfb6898aa78f74f2be6bf8b10c","s":"0x9a2018a7e31b623a91802147e6f8d5c658e17191e69f6663052efda71db72e2","yParity":"0x1"}}"#,
+            r#"{"message":{"app":"0x0000000000000000000000000000000000000000","nonce":0,"max_gas_price":0,"data":"0x48656c6c6f2c20576f726c6421"},"signature":{"r":"0x1551fdb98e7afaedf0f626029e525ff7ca4b8e8bad81f2d7299979d76ed438b3","s":"0x726fc8b549d8578868775530eee59c9c2b57923baef9df981280739f1b76289e","yParity":"0x0"}}"#,
             ret
         );
 
@@ -428,7 +419,7 @@ mod tests {
         assert_eq!(signer, recovered);
 
         assert_eq!(
-            r#"{"name":"CartesiPaio","version":"0.0.1","chainId":"0x539","verifyingContract":"0x0000000000000000000000000000000000000000"}"#,
+            r#"{"name":"CartesiPaio","version":"0.0.1","chainId":"0xaa36a7","verifyingContract":"0x0000000000000000000000000000000000000000"}"#,
             serde_json::to_string(&DOMAIN).unwrap()
         );
     }
