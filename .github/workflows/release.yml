@@ -35,9 +35,8 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 
-      # TODO: Remove true after fix tests
       - name: Test
-        run: cargo test --workspace --no-fail-fast || true
+        run: cargo test --workspace --no-fail-fast
 
   release:
     runs-on: ${{ matrix.runner }}
