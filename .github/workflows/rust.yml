@@ -2,7 +2,7 @@ name: Rust test
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -49,6 +49,5 @@ jobs:
           curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
           cargo binstall --no-confirm cross
 
-      # TODO: Remove true after fix tests
       - name: Test
-        run: cargo test --workspace --no-fail-fast || true
+        run: cargo test --workspace --no-fail-fast
