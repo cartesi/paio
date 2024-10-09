@@ -1,5 +1,2 @@
-[env]
-RUST_TEST_THREADS = "1"
-
 [build]
 rustflags = ["-C", "target-feature=+crt-static"]
