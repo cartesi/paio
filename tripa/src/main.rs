@@ -751,7 +751,7 @@ mod tests {
             .unwrap();
         let (status, body) = extract_parts(response).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(&body[..], b"{\"name\":\"CartesiPaio\",\"version\":\"0.0.1\",\"chainId\":\"0xaa36a7\",\"verifyingContract\":\"0x0000000000000000000000000000000000000000\"}");
+        assert_eq!(&body[..], b"{\"name\":\"Cartesi\",\"version\":\"0.1.0\",\"chainId\":\"0xaa36a7\",\"verifyingContract\":\"0x0000000000000000000000000000000000000000\"}");
     }
 
     #[tokio::test]

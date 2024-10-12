@@ -386,7 +386,7 @@ mod tests {
 
         let signature = signer.sign_typed_data_sync(&v, &DOMAIN).unwrap();
         assert_eq!(
-            r#"{"r":"0x1551fdb98e7afaedf0f626029e525ff7ca4b8e8bad81f2d7299979d76ed438b3","s":"0x726fc8b549d8578868775530eee59c9c2b57923baef9df981280739f1b76289e","yParity":"0x0"}"#,
+            r#"{"r":"0xb131cda9f34ca69a351d2a3b8809a9f0b5f4c99e3e0977d541456d800273cf9e","s":"0x61bb5be8e5a98611fee68ec707a0b4bb901ffc6ffd00c8250d9a7c037fc15680","yParity":"0x1"}"#,
             serde_json::to_string(&signature).unwrap()
         );
         let signed_tx = SignedTransaction {
@@ -397,7 +397,7 @@ mod tests {
         let ret = serde_json::to_string(&signed_tx).unwrap();
 
         assert_eq!(
-            r#"{"message":{"app":"0x0000000000000000000000000000000000000000","nonce":0,"max_gas_price":0,"data":"0x48656c6c6f2c20576f726c6421"},"signature":{"r":"0x1551fdb98e7afaedf0f626029e525ff7ca4b8e8bad81f2d7299979d76ed438b3","s":"0x726fc8b549d8578868775530eee59c9c2b57923baef9df981280739f1b76289e","yParity":"0x0"}}"#,
+            r#"{"message":{"app":"0x0000000000000000000000000000000000000000","nonce":0,"max_gas_price":0,"data":"0x48656c6c6f2c20576f726c6421"},"signature":{"r":"0xb131cda9f34ca69a351d2a3b8809a9f0b5f4c99e3e0977d541456d800273cf9e","s":"0x61bb5be8e5a98611fee68ec707a0b4bb901ffc6ffd00c8250d9a7c037fc15680","yParity":"0x1"}}"#,
             ret
         );
 
@@ -419,7 +419,7 @@ mod tests {
         assert_eq!(signer, recovered);
 
         assert_eq!(
-            r#"{"name":"CartesiPaio","version":"0.0.1","chainId":"0xaa36a7","verifyingContract":"0x0000000000000000000000000000000000000000"}"#,
+            r#"{"name":"Cartesi","version":"0.1.0","chainId":"0xaa36a7","verifyingContract":"0x0000000000000000000000000000000000000000"}"#,
             serde_json::to_string(&DOMAIN).unwrap()
         );
     }
