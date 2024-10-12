@@ -338,8 +338,8 @@ impl SignedTransaction {
 }
 
 pub const DOMAIN: Eip712Domain = eip712_domain!(
-   name: "CartesiPaio",
-   version: "0.0.1",
+   name: "Cartesi",
+   version: "0.1.0",
    chain_id: 11155111,
    verifying_contract: Address::ZERO,
 );
