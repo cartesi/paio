@@ -522,11 +522,14 @@ async fn submit_transaction(
         true,
     );
 
+    println!("new transaction submitted: {:?} sig {:?}", message, sig);
     if let Err(e) = sig {
+        println!("declined tx: sig serialization failed");
         return Err((StatusCode::EXPECTATION_FAILED, e.to_string()));
     }
 
     if let Err(e) = message {
+        println!("declined tx: message serialization failed");
         return Err((StatusCode::EXPECTATION_FAILED, e.to_string()));
     }
 
@@ -536,6 +539,7 @@ async fn submit_transaction(
     };
 
     if let Err(e) = signed_transaction.recover(&DOMAIN) {
+        println!("declined tx: sig recovery failed");
         return Err((StatusCode::UNAUTHORIZED, e.to_string()));
     };
     // TODO: add logic to calculate wei per byte, now it is wei per gas
@@ -562,13 +566,14 @@ async fn submit_transaction(
     let transaction_opt = state_lock
         .wallet_state
         .verify_single(sequencer_address, &signed_transaction.to_wire_transaction());
-    state_lock.batch_builder.add(signed_transaction.clone());
     if transaction_opt.is_none() {
+        println!("declined tx: transaction not valid");
         return Err((
             StatusCode::NOT_ACCEPTABLE,
             "Transaction not valid".to_string(),
         ));
     };
+    state_lock.batch_builder.add(signed_transaction.clone());
     Ok((StatusCode::CREATED, ()))
 }
 

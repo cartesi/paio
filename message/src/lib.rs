@@ -139,11 +139,13 @@ impl AppNonces {
         tx: &WireTransaction,
         domain: &Eip712Domain,
     ) -> Option<Transaction> {
+        println!("verifying tx under domain ..");
         let tx = tx.verify(domain)?;
-
+        println!("verifying ok!");
         let expected_nonce = self.nonces.entry(tx.sender).or_insert(0);
 
         if *expected_nonce != tx.nonce {
+            println!("verify failed: expected nonce {:?} got {:?}", *expected_nonce, tx.nonce);
             return None;
         }
 
