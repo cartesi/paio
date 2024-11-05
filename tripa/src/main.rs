@@ -521,13 +521,6 @@ async fn gas_price(
     }
 }
 
-// !!!
-/*
-async fn get_gas_price(state: Arc<LambdaMutex>) -> Result<u128, Error> {
-    Ok(state.lock().await.provider.get_gas_price().await?)
-}
-*/
-
 async fn get_domain(State(_state): State<Arc<LambdaMutex>>) -> (StatusCode, Json<Eip712Domain>) {
     (StatusCode::OK, Json(DOMAIN))
 }

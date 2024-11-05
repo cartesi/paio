@@ -6,16 +6,19 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = "1.0.86"
+
 tracing = "0.1.40"
 
 alloy-core = { version = "0.8.5", features = ["sol-types", "serde"] }
 alloy-signer = { version = "0.3.6", features = ["eip712"] }
 
 serde = { version = "1.0", features = ["derive"] }
-postcard = { version = "1.0", features = ["use-std"] }
 base64-bytes = "0.1"
 ark-serialize = { version = "0.4.2", features = ["derive"] }
 derive_more = "0.99.17"
+ethereum_ssz = "0.8.0"
+ethereum_ssz_derive = "0.8.0"
 
 [dev-dependencies]
 serde_json = "1.0"

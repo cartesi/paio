@@ -1,7 +1,9 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::{format, Debug}};
+
+use anyhow::{Error, anyhow};
 
 use alloy_core::{
-    primitives::{Address, SignatureError, U256},
+    primitives::{Address, Parity, SignatureError, U256},
     sol,
     sol_types::{eip712_domain, Eip712Domain, SolStruct},
 };
@@ -10,6 +12,7 @@ use alloy_signer::Signature;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use derive_more::{Display, Into};
 use serde::{Deserialize, Serialize};
+use ssz::{Decode, Encode};
 pub struct WalletState {
     pub domain: Eip712Domain,
 
@@ -50,7 +53,7 @@ impl WalletState {
         tx_opt
     }
 
-    pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
+    pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> Result<Vec<Transaction>, Error> {
         let batch = Batch::from_bytes(raw_batch)?;
         Ok(self.verify_batch(batch))
     }
@@ -110,7 +113,7 @@ impl AppState {
             .collect()
     }
 
-    pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
+    pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> Result<Vec<Transaction>, Error> {
         let batch = Batch::from_bytes(raw_batch)?;
         Ok(self.verify_batch(batch))
     }
@@ -179,13 +182,83 @@ sol! {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+pub const PARITY_TYPE_EIP155: u32 = 0;
+pub const PARITY_TYPE_NON_EIP155: u32 = 1;
+pub const PARITY_TYPE_PARITY: u32 = 2;
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, ssz_derive::Encode, ssz_derive::Decode)]
+pub struct WireParity {
+    pub parity_type: u32,
+    pub eip155_value: u64,
+    pub noneip155_value: bool,
+    pub pairty_value: bool,
+}
+
+impl WireParity {
+    pub fn from_parity(value: Parity) -> Self {
+        match value {
+            Parity::Eip155(v) => WireParity{
+                parity_type: PARITY_TYPE_EIP155,
+                eip155_value: v,
+                noneip155_value: false,
+                pairty_value: false,
+            },
+            Parity::NonEip155(v) => WireParity{
+                parity_type: PARITY_TYPE_NON_EIP155,
+                eip155_value: 0,
+                noneip155_value: v,
+                pairty_value: false,
+            },
+            Parity::Parity(v) => WireParity{
+                parity_type: PARITY_TYPE_PARITY,
+                eip155_value: 0,
+                noneip155_value: false,
+                pairty_value: v,
+            },
+        }
+    }
+
+    pub fn to_parity(&self) -> Result<Parity, Error> {
+        if self.parity_type == PARITY_TYPE_EIP155 {
+            return Ok(Parity::Eip155(self.eip155_value))
+        } else if self.parity_type == PARITY_TYPE_NON_EIP155 {
+            return Ok(Parity::NonEip155(self.noneip155_value))
+        } else if self.parity_type == PARITY_TYPE_PARITY {
+            return Ok(Parity::Parity(self.pairty_value))
+        }
+        Err(anyhow!("invalid parity type"))
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, ssz_derive::Encode, ssz_derive::Decode)]
+pub struct WireSignature {
+    pub v: WireParity,
+    pub r: U256,
+    pub s: U256,
+}
+
+impl WireSignature {
+    pub fn from_signature(value: &Signature) -> Self {
+        Self {
+            v: WireParity::from_parity(value.v()),
+            r: value.r(),
+            s: value.s(),
+        }
+    }
+
+    pub fn to_signature(&self) -> Signature {
+        let v = self.v.to_parity().unwrap();
+        Signature::new(self.r, self.s, v)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, ssz_derive::Encode, ssz_derive::Decode)]
 pub struct WireTransaction {
     pub app: Address,
     pub nonce: u64,
     pub max_gas_price: u128,
     pub data: Vec<u8>,
-    pub signature: Signature,
+    pub signature: WireSignature,
 }
 
 impl WireTransaction {
@@ -195,7 +268,7 @@ impl WireTransaction {
             nonce: value.message.nonce,
             max_gas_price: value.message.max_gas_price,
             data: value.message.data.to_vec(),
-            signature: value.signature,
+            signature: WireSignature::from_signature(&value.signature),
         }
     }
 
@@ -207,7 +280,7 @@ impl WireTransaction {
                 max_gas_price: self.max_gas_price,
                 data: self.data.clone().into(),
             },
-            signature: self.signature,
+            signature: self.signature.to_signature(),
         }
     }
 
@@ -226,7 +299,7 @@ impl WireTransaction {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, ssz_derive::Encode, ssz_derive::Decode)]
 pub struct Batch {
     pub sequencer_payment_address: Address,
     pub txs: Vec<WireTransaction>,
@@ -234,11 +307,16 @@ pub struct Batch {
 
 impl Batch {
     pub fn to_bytes(&self) -> Vec<u8> {
-        postcard::to_stdvec(&self).unwrap()
+        self.as_ssz_bytes()
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> postcard::Result<Self> {
-        postcard::from_bytes(bytes)
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let result = Batch::from_ssz_bytes(bytes);
+        if let Err(err) = result {
+            Err(anyhow!(format!("{:?}", err)))
+        } else {
+            Ok(result.unwrap())
+        }
     }
 }
 
@@ -334,7 +412,7 @@ impl SignedTransaction {
             nonce: self.message.nonce,
             max_gas_price: self.message.max_gas_price,
             data: self.message.data.clone().into(),
-            signature: self.signature,
+            signature: WireSignature::from_signature(&self.signature),
         }
     }
 }
