@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+message Batch {
+    bytes sequencer_payment_address = 1;
+    repeated Transaction transactions = 2;
+}
+
+message Transaction {
+    bytes app = 1;
+    uint64 nonce = 2;
+    bytes max_gas_price = 3;
+    bytes data = 4;
+    Signature signature = 5;
+}
+
+message Signature {
+    Parity v = 1;
+    bytes r = 2;
+    bytes s = 3;    
+}
+
+message Parity {
+    enum Type {
+        EIP155 = 0;
+        NON_EIP155 = 1;
+        PARITY = 2;
+    }
+    Type type = 1;
+    uint64 eip155_value = 2;
+    bool non_eip155_value = 3;
+    bool parity_value = 4;
+}

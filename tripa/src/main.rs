@@ -39,8 +39,7 @@ use celestia_rpc::BlobClient;
 use celestia_types::{nmt::Namespace, Blob, TxConfig};
 
 use message::{
-    AppNonces, BatchBuilder, EspressoTransaction, SignedTransaction, SigningMessage,
-    SubmitPointTransaction, WalletState, DOMAIN,
+    proto_message, AppNonces, BatchBuilder, EspressoTransaction, SignedTransaction, SigningMessage, SubmitPointTransaction, WalletState, DOMAIN
 };
 
 async fn fund_sequencer(
@@ -521,13 +520,6 @@ async fn gas_price(
     }
 }
 
-// !!!
-/*
-async fn get_gas_price(state: Arc<LambdaMutex>) -> Result<u128, Error> {
-    Ok(state.lock().await.provider.get_gas_price().await?)
-}
-*/
-
 async fn get_domain(State(_state): State<Arc<LambdaMutex>>) -> (StatusCode, Json<Eip712Domain>) {
     (StatusCode::OK, Json(DOMAIN))
 }
@@ -588,9 +580,10 @@ async fn submit_transaction(
     }
   
     let sequencer_address = lambda.config.sequencer_address;
+    let proto_txn = proto_message::Transaction::from_signed_transaction(&signed_transaction);
     let transaction_opt = lambda
         .wallet_state
-        .verify_single(sequencer_address, &signed_transaction.to_wire_transaction());
+        .verify_single(sequencer_address, &proto_txn);
     if transaction_opt.is_none() {
         tracing::error!("declined tx: transaction not valid");
         return Err((
@@ -614,7 +607,8 @@ mod tests {
         routing::RouterIntoService,
     };
     use http_body_util::BodyExt; // for `collect`
-    use message::{SignedTransaction, SigningMessage, WireTransaction, DOMAIN};
+    use message::{SignedTransaction, SigningMessage, DOMAIN};
+    use proto_message;
     // use mime;
     use serde_json::json;
     use tower::Service;
@@ -695,7 +689,7 @@ mod tests {
         }
     }
 
-    fn produce_tx(nonce: u64, gas: u128) -> WireTransaction {
+    fn produce_tx(nonce: u64, gas: u128) -> proto_message::Transaction {
         let json = format!(
             r#"
         {{
@@ -713,7 +707,7 @@ mod tests {
             message: v,
             signature,
         };
-        WireTransaction::from_signed_transaction(&signed_transaction)
+        proto_message::Transaction::from_signed_transaction(&signed_transaction)
     }
 
     /// Having a function that produces our app makes it easy to call it from tests

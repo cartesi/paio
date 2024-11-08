@@ -1,15 +1,20 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Add};
+
+use anyhow::{Error, anyhow};
 
 use alloy_core::{
-    primitives::{Address, SignatureError, U256},
+    primitives::{aliases::U120, Address, Parity, SignatureError, U160, U256},
     sol,
-    sol_types::{eip712_domain, Eip712Domain, SolStruct},
+    sol_types::{eip712_domain, Eip712Domain, SolStruct, SolValue},
 };
 use alloy_signer::Signature;
 
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use derive_more::{Display, Into};
+use prost::Message;
 use serde::{Deserialize, Serialize};
+
+pub mod proto_message;
 pub struct WalletState {
     pub domain: Eip712Domain,
 
@@ -21,20 +26,25 @@ pub struct WalletState {
 }
 
 impl WalletState {
-    pub fn verify_batch(&mut self, batch: Batch) -> Vec<Transaction> {
+    pub fn verify_batch(&mut self, batch: proto_message::Batch) -> Vec<Transaction> {
         batch
-            .txs
+            .transactions
             .iter()
-            .filter_map(|tx| self.verify_single(batch.sequencer_payment_address, tx))
+            .filter_map(|tx| {
+                let address = address_from_bytes(&batch.sequencer_payment_address);
+                self.verify_single(address, tx)
+            })
             .collect()
     }
     // TODO: create custom error type in order to explain why it did not work
     pub fn verify_single(
         &mut self,
         sequencer_payment_address: Address,
-        tx: &WireTransaction,
+        tx: &proto_message::Transaction,
     ) -> Option<Transaction> {
-        let app_nonce = self.app_nonces.entry(tx.app).or_default();
+        let app_nonce = self.app_nonces
+            .entry(address_from_bytes(&tx.app))
+            .or_default();
         let tx_opt = app_nonce.verify_tx(tx, &self.domain);
 
         if let Some(ref tx) = tx_opt {
@@ -50,8 +60,8 @@ impl WalletState {
         tx_opt
     }
 
-    pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
-        let batch = Batch::from_bytes(raw_batch)?;
+    pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> Result<Vec<Transaction>, Error> {
+        let batch = proto_message::Batch::from_bytes(raw_batch)?;
         Ok(self.verify_batch(batch))
     }
 
@@ -96,12 +106,12 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn verify_batch(&mut self, batch: Batch) -> Vec<Transaction> {
+    pub fn verify_batch(&mut self, batch: proto_message::Batch) -> Vec<Transaction> {
         batch
-            .txs
+            .transactions
             .iter()
             .filter_map(|tx| {
-                if self.address != tx.app {
+                if self.address != address_from_bytes(&tx.app) {
                     return None;
                 }
 
@@ -110,8 +120,8 @@ impl AppState {
             .collect()
     }
 
-    pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
-        let batch = Batch::from_bytes(raw_batch)?;
+    pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> Result<Vec<Transaction>, Error> {
+        let batch = proto_message::Batch::from_bytes(raw_batch)?;
         Ok(self.verify_batch(batch))
     }
 }
@@ -136,7 +146,7 @@ impl AppNonces {
     }
     pub fn verify_tx(
         &mut self,
-        tx: &WireTransaction,
+        tx: &proto_message::Transaction,
         domain: &Eip712Domain,
     ) -> Option<Transaction> {
         tracing::info!("verifying tx under domain ..");
@@ -179,67 +189,133 @@ sol! {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-pub struct WireTransaction {
-    pub app: Address,
-    pub nonce: u64,
-    pub max_gas_price: u128,
-    pub data: Vec<u8>,
-    pub signature: Signature,
+impl proto_message::Batch {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.encode_to_vec()
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<proto_message::Batch, Error> {
+        match proto_message::Batch::decode(bytes) {
+            Ok(b) => Ok(b),
+            Err(err) => Err(anyhow!("#{}", err))
+        }
+    }
 }
 
-impl WireTransaction {
+impl proto_message::Transaction {
     pub fn from_signed_transaction(value: &SignedTransaction) -> Self {
         Self {
-            app: value.message.app,
+            app: value.message.app.to_vec(),
             nonce: value.message.nonce,
-            max_gas_price: value.message.max_gas_price,
+            max_gas_price: u256_to_bytes(U256::from(value.message.max_gas_price)),
             data: value.message.data.to_vec(),
-            signature: value.signature,
+            signature: Some(proto_message::Signature::from_signature(&value.signature)),
         }
     }
 
-    pub fn to_signed_transaction(&self) -> SignedTransaction {
+     pub fn to_signed_transaction(&self) -> SignedTransaction {
         SignedTransaction {
             message: SigningMessage {
-                app: self.app,
+                app: address_from_bytes(&self.app),
                 nonce: self.nonce,
-                max_gas_price: self.max_gas_price,
+                max_gas_price: u128_from_bytes(&self.max_gas_price),
                 data: self.data.clone().into(),
             },
-            signature: self.signature,
+            signature: self.signature.clone().unwrap().to_signature(),
         }
     }
 
     pub fn verify(&self, domain: &Eip712Domain) -> Option<Transaction> {
-        let Ok(sender) = self.to_signed_transaction().recover(domain) else {
+        let signed_tx = self.to_signed_transaction();
+        let Ok(sender) = signed_tx.recover(domain) else {
             return None;
         };
 
         Some(Transaction {
             sender,
-            app: self.app,
+            app: signed_tx.message.app,
             nonce: self.nonce,
-            max_gas_price: self.max_gas_price,
+            max_gas_price: signed_tx.message.max_gas_price,
             data: self.data.clone(),
         })
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-pub struct Batch {
-    pub sequencer_payment_address: Address,
-    pub txs: Vec<WireTransaction>,
+impl proto_message::Signature {
+    pub fn from_signature(value: &Signature) -> Self {
+        Self {
+            v: Some(proto_message::Parity::from_parity(value.v())),
+            r: value.r().to_le_bytes_vec(),
+            s: value.s().to_le_bytes_vec(),
+        }
+    }
+
+    pub fn to_signature(&self) -> Signature {
+        Signature::new(
+            u256_from_bytes(&self.r), 
+            u256_from_bytes(&self.s), 
+            self.v.unwrap().to_parity()
+        )
+    }
 }
 
-impl Batch {
-    pub fn to_bytes(&self) -> Vec<u8> {
-        postcard::to_stdvec(&self).unwrap()
+impl proto_message::Parity {
+    pub fn from_parity(value: Parity) -> Self {
+        match value {
+            Parity::Eip155(v) => Self{
+                r#type: proto_message::parity::Type::Eip155.into(),
+                eip155_value: v,
+                non_eip155_value: false,
+                parity_value: false,
+            },
+            Parity::NonEip155(v) => Self{
+                r#type: proto_message::parity::Type::NonEip155.into(),
+                eip155_value: 0,
+                non_eip155_value: v,
+                parity_value: false,
+            },
+            Parity::Parity(v) => Self {
+                r#type: proto_message::parity::Type::Parity.into(),
+                eip155_value: 0,
+                non_eip155_value: false,
+                parity_value: v
+            },
+        }
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> postcard::Result<Self> {
-        postcard::from_bytes(bytes)
+    pub fn to_parity(&self) -> Parity {
+        let parity_type = unsafe { 
+            std::mem::transmute::<_, proto_message::parity::Type>(self.r#type)
+        };
+        match parity_type {
+            proto_message::parity::Type::Eip155 => Parity::Eip155(self.eip155_value),
+            proto_message::parity::Type::NonEip155 => Parity::NonEip155(self.non_eip155_value),
+            proto_message::parity::Type::Parity => Parity::Parity(self.parity_value),
+        }
     }
+}
+
+pub fn address_to_bytes(address: Address) -> Vec<u8> {
+    address.to_vec()
+}
+
+pub fn address_from_bytes(bytes: &Vec<u8>) -> Address {
+    let b: [u8; 20] = bytes.clone().try_into().unwrap();
+    Address::from(b)
+}
+
+pub fn u256_to_bytes(u256: U256) -> Vec<u8> {
+    u256.to_le_bytes_vec()
+}
+
+pub fn u256_from_bytes(bytes: &Vec<u8>) -> U256 {
+    let b: [u8; 32] = bytes[..32].try_into().unwrap();
+    U256::from_le_bytes(b)
+}
+
+pub fn u128_from_bytes(bytes: &Vec<u8>) -> u128 {
+    let b: [u8; 16] = bytes[..16].try_into().unwrap();
+    u128::from_le_bytes(b)
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -260,16 +336,16 @@ impl BatchBuilder {
         self.txs.push(tx)
     }
 
-    pub fn build(self) -> Batch {
+    pub fn build(self) -> proto_message::Batch {
         let txs = self
             .txs
             .iter()
-            .map(WireTransaction::from_signed_transaction)
+            .map(proto_message::Transaction::from_signed_transaction)
             .collect();
 
-        Batch {
-            sequencer_payment_address: self.sequencer_payment_address,
-            txs,
+        proto_message::Batch {
+            sequencer_payment_address: self.sequencer_payment_address.to_vec(),
+            transactions: txs,
         }
     }
 }
@@ -326,16 +402,6 @@ impl SignedTransaction {
     pub fn recover(&self, domain: &Eip712Domain) -> Result<Address, SignatureError> {
         let signing_hash = self.message.eip712_signing_hash(domain);
         self.signature.recover_address_from_prehash(&signing_hash)
-    }
-
-    pub fn to_wire_transaction(&self) -> WireTransaction {
-        WireTransaction {
-            app: self.message.app,
-            nonce: self.message.nonce,
-            max_gas_price: self.message.max_gas_price,
-            data: self.message.data.clone().into(),
-            signature: self.signature,
-        }
     }
 }
 
